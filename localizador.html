@@ -1,0 +1,243 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000"><link rel="manifest" href="/manifest.json"><title>Localizador</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;padding:8px;padding-top:max(8px,env(safe-area-inset-top));padding-bottom:max(8px,env(safe-area-inset-bottom));font:16px/1.35 system-ui,sans-serif;background:#000;color:#eee}
+button,select,input,textarea{font:inherit;color:#eee;background:#1c1c1c;border:1px solid #444;border-radius:6px;padding:10px;box-sizing:border-box}
+textarea,input[type=search],select{width:100%;margin:4px 0}
+#bar{display:flex;gap:6px}#bar button{flex:1}
+h3{margin:12px 0 2px;padding:2px 6px;background:#223;font-size:16px}
+.r{padding:4px 6px;border-bottom:1px solid #222}.m{color:#f66}#st{color:#9c9;margin:4px 0}
+#dout .r{cursor:pointer}#ed input{width:100%;margin:4px 0}[hidden]{display:none!important}
+</style></head><body>
+<div id="bar"><button id="bp">Colar</button><button id="bc">Copiar</button><button id="bx">Limpar</button><button id="bk">Catálogo</button><button id="be">Editar</button></div>
+<textarea id="in" rows="4" placeholder="Cole os códigos do pedido" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+<input id="ds" type="search" placeholder="Buscar por descrição ou código parcial" autocomplete="off">
+<div id="dout"></div><div id="st"></div><div id="out"></div><div id="ver" style="color:#777;font-size:12px;margin-top:10px">BlackFinder v6</div>
+<div id="ed" hidden>
+<h3>Editar item</h3>
+<input id="ec" placeholder="Código (AB-12345 ou só 12345)" autocomplete="off">
+<button id="ev">Ver atual</button>
+<input id="el" list="ls" placeholder="Local" autocomplete="off"><datalist id="ls"></datalist>
+<input id="eds" placeholder="Descrição (opcional)" autocomplete="off">
+<div style="display:flex;gap:6px"><button id="es" style="flex:1">Salvar</button><button id="er" style="flex:1">Remover</button><button id="ex" style="flex:1">Exportar CSV</button></div>
+<div id="em" class="r"></div></div>
+<div id="cat" hidden>
+<h3>Catálogo</h3>
+<input id="fi" type="file" accept=".csv,.tsv,.txt,text/*">
+<textarea id="raw" rows="4" placeholder="ou cole a planilha aqui (CSV/TSV com colunas código, local, descrição)"></textarea>
+<button id="ba">Analisar</button>
+<div id="map" hidden>
+<label><input type="checkbox" id="hh"> primeira linha é cabeçalho</label>
+Código <select id="sc"></select>Local <select id="sl"></select>Local (2ª parte) <select id="sl2"></select>Descrição <select id="sd"></select>
+<div id="pv" class="r"></div><button id="bs">Salvar catálogo</button>
+</div></div>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const ck=s=>s.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+const zs=s=>s.replace(/^0+(?=.)/,'');
+const col=new Intl.Collator('pt',{numeric:true}).compare;
+let rows=[],byCode=new Map(),byZ=new Map(),byNum=new Map(),inv=new Map(),tk=[],pend=null,lastText='';
+
+function build(){
+  byCode=new Map();byZ=new Map();byNum=new Map();inv=new Map();
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i],k=ck(r[0]);if(!k)continue;
+    let a=byCode.get(k);if(a)a.push(i);else byCode.set(k,[i]);
+    const z=zs(k);a=byZ.get(z);if(a)a.push(i);else byZ.set(z,[i]);
+    const mn=k.match(/^[A-Z]*(\d+)$/);if(mn){const n=zs(mn[1]);a=byNum.get(n);if(a)a.push(i);else byNum.set(n,[i])}
+    for(const t of norm(r[2]+' '+r[0]).split(/[^a-z0-9]+/)){
+      if(!t)continue;const l=inv.get(t);
+      if(!l)inv.set(t,[i]);else if(l[l.length-1]!==i)l.push(i);
+    }
+  }
+  tk=[...inv.keys()].sort();
+}
+function lb(t){let a=0,b=tk.length;while(a<b){const m=(a+b)>>1;if(tk[m]<t)a=m+1;else b=m}return a}
+
+function run(){
+  const toks=$('in').value.replace(/\bc[oó]digos?\b\.?/gi,' ').replace(/\b([A-Za-z]{1,4})[\s\-_.]+(?=\d)/g,'$1').split(/[\s,;|]+/).filter(Boolean);
+  const cnt=new Map();
+  for(const x of toks){const k=ck(x);cnt.set(k,(cnt.get(k)||0)+1)}
+  const found=[],miss=[];
+  for(const [k,n] of cnt){
+    let ids=byCode.get(k)||byZ.get(zs(k)),amb=false;
+    if(!ids&&/^\d+$/.test(k)){ids=byNum.get(zs(k));amb=!!ids&&new Set(ids.map(i=>ck(rows[i][0]))).size>1}
+    if(!ids)miss.push([k,n]);
+    else for(const i of ids)found.push([rows[i][1],rows[i][0],rows[i][2],n,amb]);
+  }
+  found.sort((a,b)=>col(a[0],b[0])||col(a[1],b[1]));
+  let h='',t='',last=null;
+  for(const f of found){
+    if(f[0]!==last){last=f[0];h+='<h3>'+esc(f[0]||'(sem local)')+'</h3>'}
+    h+='<div class="r">'+esc(f[1])+' '+esc(f[2])+(f[3]>1?' <b>×'+f[3]+'</b>':'')+(f[4]?' <b class="m">⚠ mesmo nº, outro prefixo</b>':'')+'</div>';
+    t+=(f[0]||'(sem local)')+' | '+f[1]+' | '+f[2]+(f[3]>1?' | x'+f[3]:'')+(f[4]?' | ⚠ mesmo nº, outro prefixo':'')+'\n';
+  }
+  if(miss.length){
+    h='<h3 class="m">NÃO ENCONTRADOS ('+miss.length+')</h3>'+miss.map(m=>'<div class="r m">'+esc(m[0])+(m[1]>1?' ×'+m[1]:'')+'</div>').join('')+h;
+    t+='\nNÃO ENCONTRADOS: '+miss.map(m=>m[0]).join(', ')+'\n';
+  }
+  lastText=t;$('out').innerHTML=h;
+  $('st').textContent=!rows.length?'Catálogo vazio: abra Catálogo e importe.':cnt.size?found.length+' localizações, '+miss.length+' não encontrados, '+cnt.size+' códigos únicos':rows.length+' produtos no catálogo';
+}
+function dsearch(){
+  const ts=norm($('ds').value).split(/[^a-z0-9]+/).filter(Boolean);
+  if(!ts.length){$('dout').innerHTML='';return}
+  let res=null;
+  for(const t of ts){
+    const s=new Set();
+    for(let i=lb(t);i<tk.length&&tk[i].startsWith(t);i++)for(const id of inv.get(tk[i]))s.add(id);
+    res=res===null?s:new Set([...res].filter(x=>s.has(x)));
+    if(!res.size)break;
+  }
+  const ids=[...res].slice(0,60);
+  $('dout').innerHTML=ids.length?ids.map(i=>'<div class="r" data-c="'+esc(rows[i][0])+'"><b>'+esc(rows[i][1])+'</b> '+esc(rows[i][0])+' '+esc(rows[i][2])+'</div>').join('')+(res.size>60?'<div class="r">+'+(res.size-60)+' resultados, refine a busca</div>':''):'<div class="r m">Nada encontrado</div>';
+}
+
+/* ---- importação ---- */
+function sp(l,d){
+  if(l.indexOf('"')<0)return l.split(d).map(s=>s.trim());
+  const o=[];let c='',q=false;
+  for(let i=0;i<l.length;i++){const ch=l[i];
+    if(q){if(ch==='"'){if(l[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}
+    else if(ch==='"')q=true;else if(ch===d){o.push(c.trim());c=''}else c+=ch;
+  }
+  o.push(c.trim());return o;
+}
+function analyze(txt){
+  const lines=txt.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length)return $('st').textContent='Nada para analisar.';
+  let d=',',best=-1;
+  for(const x of ['\t',';','|',',']){const c=lines[0].split(x).length;if(c>best){best=c;d=x}}
+  if(best<2)return $('st').textContent='Não detectei colunas (separador tab, ; | ou vírgula).';
+  pend=lines.map(l=>sp(l,d));
+  const n=pend[0].length,h=pend[0].map(norm);
+  const R={c:/^(cod|sku|ref|ean|id|item)/,l:/(local|endere|corredor|prateleira|posi|rua|setor|gondola|box|bloco)/,d:/(desc|produto|nome)/};
+  const g=(re,def)=>{const i=h.findIndex(x=>re.test(x));return i<0?def:i};
+  const hasH=h.some(x=>R.c.test(x)||R.l.test(x)||R.d.test(x));
+  $('hh').checked=hasH;fill();
+  if(hasH){$('sc').value=g(R.c,0);$('sl').value=g(R.l,Math.min(1,n-1));
+    const dd=g(R.d,-1);$('sd').value=dd;}
+  else{$('sc').value=0;$('sl').value=Math.min(1,n-1);$('sd').value=n>2?2:-1}
+  $('sl2').value=-1;preview();$('map').hidden=false;
+  $('st').textContent=(pend.length-(hasH?1:0))+' linhas lidas. Confira as colunas e salve.';
+}
+function fill(){
+  const n=pend[0].length,hd=$('hh').checked;let a='';
+  for(let i=0;i<n;i++)a+='<option value="'+i+'">'+esc(hd?pend[0][i]:'Coluna '+(i+1))+'</option>';
+  const none='<option value="-1">(nenhuma)</option>';
+  $('sc').innerHTML=a;$('sl').innerHTML=a;$('sl2').innerHTML=none+a;$('sd').innerHTML=none+a;
+}
+function preview(){
+  const x=pend[$('hh').checked?1:0]||[],g=s=>+$(s).value;
+  $('pv').textContent='Exemplo: código='+(x[g('sc')]||'')+' | local='+(x[g('sl')]||'')+(g('sl2')>=0?'-'+(x[g('sl2')]||''):'')+' | desc='+(g('sd')>=0?x[g('sd')]||'':'');
+}
+async function save(){
+  const s=$('hh').checked?1:0,c=+$('sc').value,l=+$('sl').value,l2=+$('sl2').value,d=+$('sd').value,r=[];
+  for(let i=s;i<pend.length;i++){
+    const x=pend[i],code=(x[c]||'').trim();if(!code)continue;
+    let loc=(x[l]||'').trim();
+    if(l2>=0){const y=(x[l2]||'').trim();if(y)loc=loc?loc+'-'+y:y}
+    r.push([code,loc,d>=0?(x[d]||'').trim():'']);
+  }
+  if(!r.length)return $('st').textContent='Nenhuma linha válida: confira a coluna de código.';
+  try{await idbSet('cat',r)}catch(e){return $('st').textContent='Erro ao gravar: '+e}
+  rows=r;build();pend=null;$('map').hidden=true;$('cat').hidden=true;$('raw').value='';
+  const dup=rows.length-byCode.size;
+  run();$('st').textContent=rows.length+' produtos salvos'+(dup>0?' ('+dup+' linhas com código repetido, todas as localizações serão exibidas)':'')+'.';
+}
+
+/* ---- armazenamento ---- */
+const idb=()=>new Promise((ok,no)=>{const q=indexedDB.open('loc',1);q.onupgradeneeded=()=>q.result.createObjectStore('k');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)});
+async function idbGet(k){const d=await idb();return new Promise((ok,no)=>{const q=d.transaction('k').objectStore('k').get(k);q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
+async function idbSet(k,v){const d=await idb();return new Promise((ok,no)=>{const t=d.transaction('k','readwrite');t.objectStore('k').put(v,k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)})}
+
+/* ---- eventos ---- */
+$('in').addEventListener('input',run);
+$('ds').addEventListener('input',dsearch);
+$('dout').addEventListener('click',e=>{const r=e.target.closest('[data-c]');if(!r)return;const i=$('in');i.value+=(i.value&&!/\s$/.test(i.value)?'\n':'')+r.dataset.c+'\n';run()});
+$('bx').onclick=()=>{$('in').value='';$('ds').value='';$('dout').innerHTML='';run()};
+$('bk').onclick=()=>{$('cat').hidden=!$('cat').hidden};
+$('bp').onclick=async()=>{try{$('in').value=await navigator.clipboard.readText();run()}catch(e){$('st').textContent='Sem permissão para ler a área de transferência: cole manualmente.'}};
+$('bc').onclick=async()=>{try{await navigator.clipboard.writeText(lastText);$('st').textContent='Copiado.'}catch(e){$('st').textContent='Não consegui copiar.'}};
+$('ba').onclick=()=>analyze($('raw').value);
+$('hh').onchange=()=>{if(pend){fill();$('sc').value=0;$('sl').value=Math.min(1,pend[0].length-1);preview()}};
+for(const s of ['sc','sl','sl2','sd'])$(s).onchange=preview;
+$('bs').onclick=save;
+$('fi').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const b=await f.arrayBuffer();let t;
+  try{t=new TextDecoder('utf-8',{fatal:true}).decode(b)}catch(_){t=new TextDecoder('windows-1252').decode(b)}
+  analyze(t);
+};
+
+/* ---- edição de item ---- */
+const em=t=>{$('em').textContent=t};
+function resolve(q){
+  const k=ck(q);if(!k)return null;
+  let ids=byCode.get(k)||byZ.get(zs(k));
+  if(!ids&&/^\d+$/.test(k)){ids=byNum.get(zs(k));if(ids&&new Set(ids.map(i=>ck(rows[i][0]))).size>1)return{amb:ids}}
+  return ids?{ids}:null;
+}
+function locs(){const s=new Set(rows.map(r=>r[1]).filter(Boolean));$('ls').innerHTML=[...s].sort(col).map(x=>'<option value="'+esc(x)+'">').join('')}
+async function gravar(nr){try{await idbSet('cat',nr)}catch(e){em('Erro ao gravar: '+e);return false}rows=nr;build();locs();run();return true}
+const ambMsg=r=>'Número repetido em prefixos diferentes ('+[...new Set(r.amb.map(i=>rows[i][0]))].join(', ')+'): digite o código completo.';
+$('be').onclick=()=>{$('ed').hidden=!$('ed').hidden;if(!$('ed').hidden)locs()};
+$('ev').onclick=()=>{
+  const r=resolve($('ec').value);
+  if(!r)return em('Código não existe no catálogo. "Salvar" cria um novo (com prefixo).');
+  if(r.amb)return em(ambMsg(r));
+  const x=rows[r.ids[0]];$('ec').value=x[0];$('el').value=x[1];$('eds').value=x[2];
+  em(r.ids.map(i=>rows[i][0]+' @ '+(rows[i][1]||'(sem local)')).join(' | '));
+};
+$('es').onclick=async()=>{
+  const q=$('ec').value.trim(),loc=$('el').value.trim(),d=$('eds').value.trim();
+  if(!q||!loc)return em('Preencha código e local.');
+  const r=resolve(q);
+  if(r&&r.amb)return em(ambMsg(r));
+  let nr,msg;
+  if(r){
+    const f=r.ids[0],drop=new Set(r.ids.slice(1));
+    nr=rows.slice();nr[f]=[rows[f][0],loc,d||rows[f][2]];nr=nr.filter((_,i)=>!drop.has(i));
+    msg=rows[f][0]+' agora está em '+loc+(drop.size?' ('+drop.size+' local(is) antigo(s) removido(s))':'');
+  }else{
+    const m=q.match(/^([A-Za-z]{1,4})[\s\-_.]*(\d+)$/);
+    if(!m)return em('Código novo precisa de prefixo e número (ex.: AB-12345).');
+    const code=m[1].toUpperCase()+'-'+m[2];
+    nr=rows.concat([[code,loc,d]]);msg=code+' criado em '+loc;
+  }
+  if(await gravar(nr))em('OK: '+msg);
+};
+$('er').onclick=async()=>{
+  const r=resolve($('ec').value);
+  if(!r)return em('Código não existe no catálogo.');
+  if(r.amb)return em(ambMsg(r));
+  const nm=r.ids.map(i=>rows[i][0]+' @ '+rows[i][1]).join(', ');
+  if(!confirm('Remover do catálogo: '+nm+'?'))return;
+  const drop=new Set(r.ids);
+  if(await gravar(rows.filter((_,i)=>!drop.has(i)))){$('ec').value='';$('el').value='';$('eds').value='';em('Removido: '+nm)}
+};
+$('ex').onclick=()=>{
+  const q=v=>/[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+  const t='codigo;local;descricao\r\n'+rows.map(r=>r.map(q).join(';')).join('\r\n')+'\r\n';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv;charset=utf-8'}));a.download='catalogo.csv';
+  document.body.appendChild(a);a.click();a.remove();em('catalogo.csv exportado ('+rows.length+' linhas) em Downloads.');
+};
+
+/* ---- início ---- */
+(async()=>{
+  try{const r=await idbGet('cat');if(r&&r.length){rows=r;build()}}catch(e){$('st').textContent='Erro ao abrir o catálogo: '+e}
+  if(!rows.length)$('cat').hidden=false;
+  run();
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(_){}
+  if('serviceWorker' in navigator){
+    const had=!!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!window.__r){window.__r=1;location.reload()}});
+    navigator.serviceWorker.register('/sw.js').then(r=>r.update()).catch(()=>{});
+  }
+})();
+</script></body></html>

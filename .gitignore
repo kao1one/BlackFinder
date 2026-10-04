@@ -1,0 +1,8 @@
+catalogo*
+*.csv
+*.tsv
+*.xlsx
+.venv/
+__pycache__/
+*.pyc
+*.log

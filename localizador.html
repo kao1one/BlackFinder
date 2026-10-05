@@ -6,15 +6,26 @@
 body{margin:0;padding:8px;padding-top:max(8px,env(safe-area-inset-top));padding-bottom:max(8px,env(safe-area-inset-bottom));font:16px/1.35 system-ui,sans-serif;background:#000;color:#eee}
 button,select,input,textarea{font:inherit;color:#eee;background:#1c1c1c;border:1px solid #444;border-radius:6px;padding:10px;box-sizing:border-box}
 textarea,input[type=search],select{width:100%;margin:4px 0}
-#bar{display:flex;gap:6px}#bar button{flex:1}
+#bar,#bar2{display:flex;gap:6px;margin-top:6px}#bar button,#bar2 button{flex:1}#pc,#pr{flex:1;min-width:0}.bar{display:flex;align-items:center;gap:6px;padding:2px 6px}.bar span{flex:0 0 42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.bar u{flex:1;display:block;text-decoration:none}.bar i{display:block;height:14px;background:#46c;border-radius:3px}
 h3{margin:12px 0 2px;padding:2px 6px;background:#223;font-size:16px}
 .r{padding:4px 6px;border-bottom:1px solid #222}.m{color:#f66}#st{color:#9c9;margin:4px 0}
 #dout .r{cursor:pointer}#ed input{width:100%;margin:4px 0}[hidden]{display:none!important}
 </style></head><body>
 <div id="bar"><button id="bp">Colar</button><button id="bc">Copiar</button><button id="bx">Limpar</button><button id="bk">Catálogo</button><button id="be">Editar</button></div>
+<div id="bar2"><button id="bf">Finalizar pedido</button><button id="bro">Relatório</button><button id="ban">Análise</button></div>
 <textarea id="in" rows="4" placeholder="Cole os códigos do pedido" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+<div style="display:flex;gap:6px"><input id="pc" list="lc" placeholder="Cliente" autocomplete="off"><input id="pr" list="lr" placeholder="Região" autocomplete="off"></div><datalist id="lc"></datalist><datalist id="lr"></datalist><div id="pm" style="color:#9c9"></div>
 <input id="ds" type="search" placeholder="Buscar por descrição ou código parcial" autocomplete="off">
-<div id="dout"></div><div id="st"></div><div id="out"></div><div id="ver" style="color:#777;font-size:12px;margin-top:10px">BlackFinder v6</div>
+<div id="dout"></div><div id="st"></div><div id="out"></div><div id="ver" style="color:#777;font-size:12px;margin-top:10px">BlackFinder v8</div>
+<div id="an" hidden>
+<h3>Análise</h3>
+<div style="display:flex;gap:6px"><select id="ap"><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="0">Tudo</option></select><select id="ar"></select></div>
+<button id="ag" style="width:100%;margin:6px 0">Gerar relatório</button>
+<div id="at"></div></div>
+<div id="rp" hidden>
+<h3>Relatório</h3>
+<button id="bxp">Exportar pedidos (CSV)</button>
+<div id="rt"></div></div>
 <div id="ed" hidden>
 <h3>Editar item</h3>
 <input id="ec" placeholder="Código (AB-12345 ou só 12345)" autocomplete="off">
@@ -60,6 +71,7 @@ function build(){
 function lb(t){let a=0,b=tk.length;while(a<b){const m=(a+b)>>1;if(tk[m]<t)a=m+1;else b=m}return a}
 
 function run(){
+  if($('in').value.trim()){if(!t0)t0=Date.now()}else t0=0;
   const toks=$('in').value.replace(/\bc[oó]digos?\b\.?/gi,' ').replace(/\b([A-Za-z]{1,4})[\s\-_.]+(?=\d)/g,'$1').split(/[\s,;|]+/).filter(Boolean);
   const cnt=new Map();
   for(const x of toks){const k=ck(x);cnt.set(k,(cnt.get(k)||0)+1)}
@@ -71,6 +83,7 @@ function run(){
     else for(const i of ids)found.push([rows[i][1],rows[i][0],rows[i][2],n,amb]);
   }
   found.sort((a,b)=>col(a[0],b[0])||col(a[1],b[1]));
+  lastF=found;lastM=miss;
   let h='',t='',last=null;
   for(const f of found){
     if(f[0]!==last){last=f[0];h+='<h3>'+esc(f[0]||'(sem local)')+'</h3>'}
@@ -228,10 +241,147 @@ $('ex').onclick=()=>{
   document.body.appendChild(a);a.click();a.remove();em('catalogo.csv exportado ('+rows.length+' linhas) em Downloads.');
 };
 
+/* ---- pedidos e relatório ---- */
+let ped=[],lastF=[],lastM=[],t0=0,syncing=false;
+const pm=t=>{$('pm').textContent=t};
+const nk=s=>norm(s).replace(/\s+/g,' ').trim();
+function listas(){
+  const f=k=>[...new Map(ped.filter(p=>p[k]).map(p=>[nk(p[k]),p[k]])).values()].sort(col).map(x=>'<option value="'+esc(x)+'">').join('');
+  $('lc').innerHTML=f('cliente');$('lr').innerHTML=f('regiao');
+}
+async function sync(){
+  const pend=ped.filter(p=>!p.enviado);
+  if(syncing||!pend.length)return;
+  syncing=true;
+  try{
+    const r=await fetch('/api/pedidos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pend.map(({enviado,...x})=>x))});
+    if(r.ok){const ok=new Set((await r.json()).salvos);ped=ped.map(p=>ok.has(p.id)?{...p,enviado:true}:p);await idbSet('ped',ped)}
+  }catch(_){}
+  syncing=false;
+}
+$('bf').onclick=async()=>{
+  const u=new Map();for(const f of lastF)u.set(f[1],f[3]);
+  if(!u.size&&!lastM.length)return pm('Nada para finalizar: cole os códigos do pedido.');
+  const now=Date.now(),p={id:now.toString(36)+Math.random().toString(36).slice(2,6),ini:t0||now,fim:now,
+    cliente:$('pc').value.trim(),regiao:$('pr').value.trim(),itens:[...u],naoEnc:lastM.slice(),enviado:false};
+  const nr=ped.concat([p]);
+  try{await idbSet('ped',nr)}catch(e){return pm('Erro ao gravar o pedido: '+e)}
+  ped=nr;listas();
+  $('in').value='';$('pc').value='';$('pr').value='';t0=0;run();
+  pm('Pedido salvo: '+p.itens.length+' itens, '+p.naoEnc.length+' não encontrados, '+Math.max(1,Math.round((p.fim-p.ini)/60000))+' min.');
+  sync();
+};
+$('bro').onclick=()=>{$('rp').hidden=!$('rp').hidden;if(!$('rp').hidden)rel()};
+function rel(){
+  const R=$('rt');
+  if(!ped.length){R.innerHTML='<div class="r">Nenhum pedido finalizado ainda.</div>';return}
+  const add=(m,k,n)=>m.set(k,(m.get(k)||0)+n),top=(m,n)=>[...m].sort((a,b)=>b[1]-a[1]).slice(0,n);
+  const prod=new Map(),reg=new Map(),rn=new Map(),pr=new Map(),cli=new Map(),nf=new Map();
+  let dur=0,it=0,un=0,nn=0;
+  for(const p of ped){
+    dur+=Math.max(0,p.fim-p.ini);
+    const rk=nk(p.regiao)||'(sem região)';if(!rn.has(rk))rn.set(rk,p.regiao||rk);add(reg,rk,1);
+    const k=nk(p.cliente);if(k){const c=cli.get(k)||{n:p.cliente,q:0,u:0};c.q++;c.u=Math.max(c.u,p.fim);cli.set(k,c)}
+    const m=pr.get(rk)||new Map();pr.set(rk,m);
+    for(const [c,q] of p.itens){add(prod,c,q);add(m,c,q);it++;un+=q}
+    for(const [c,q] of p.naoEnc){add(nf,c,q);nn++}
+  }
+  const L=a=>a.length?a.map(x=>'<div class="r">'+x+'</div>').join(''):'<div class="r">(sem dados ainda)</div>',H=t=>'<h3>'+t+'</h3>';
+  const at=c=>{const i=byCode.get(ck(c));return i?' @ '+esc(rows[i[0]][1]):''};
+  const n=ped.length,fm=t=>new Date(t).toLocaleDateString('pt-BR');
+  R.innerHTML=
+    H('Resumo')+L([n+' pedidos, de '+fm(Math.min(...ped.map(p=>p.ini)))+' a '+fm(Math.max(...ped.map(p=>p.fim))),
+      'Tempo médio: '+(dur/n/60000).toFixed(1)+' min',
+      'Por pedido: '+(it/n).toFixed(1)+' itens, '+(un/n).toFixed(1)+' unidades',
+      'Códigos não encontrados: '+(it+nn?Math.round(100*nn/(it+nn)):0)+'%',
+      'Pedidos ainda não enviados ao servidor: '+ped.filter(p=>!p.enviado).length])+
+    H('Produtos mais pedidos')+L(top(prod,10).map(([c,q])=>esc(c)+at(c)+' ×'+q))+
+    H('Regiões')+L(top(reg,8).map(([k,v])=>esc(rn.get(k))+': '+v+' pedido(s)'))+
+    H('Produtos por região')+L(top(reg,5).map(([k])=>'<b>'+esc(rn.get(k))+'</b>: '+top(pr.get(k),3).map(([c,q])=>esc(c)+' ×'+q).join(', ')))+
+    H('Clientes recorrentes')+L([...cli.values()].filter(c=>c.q>1).sort((a,b)=>b.q-a.q).slice(0,10).map(c=>esc(c.n)+': '+c.q+' pedidos, último em '+fm(c.u)))+
+    H('Não encontrados recorrentes (catálogo desatualizado?)')+L(top(nf,10).filter(x=>x[1]>1).map(([c,q])=>'<span class="m">'+esc(c)+' ×'+q+'</span>'));
+}
+$('bxp').onclick=()=>{
+  const q=v=>{v=String(v);if(/^[=+\-@]/.test(v))v="'"+v;return /[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  const t='id;inicio;fim;minutos;cliente;regiao;itens;unidades;nao_encontrados;codigos\r\n'+ped.map(p=>[p.id,new Date(p.ini).toISOString(),new Date(p.fim).toISOString(),Math.round((p.fim-p.ini)/6000)/10,p.cliente,p.regiao,p.itens.length,p.itens.reduce((s,x)=>s+x[1],0),p.naoEnc.length,p.itens.map(x=>x[0]+(x[1]>1?'x'+x[1]:'')).join(' ')].map(q).join(';')).join('\r\n')+'\r\n';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv;charset=utf-8'}));a.download='pedidos.csv';
+  document.body.appendChild(a);a.click();a.remove();pm('pedidos.csv exportado ('+ped.length+' pedidos) em Downloads.');
+};
+
+/* ---- análise gráfica e indicações ---- */
+const MIN_PED=10,MIN_SUP=3,MIN_CONF=.5;
+const HH=t=>'<h3>'+t+'</h3>',LL=a=>a.length?a.map(x=>'<div class="r">'+x+'</div>').join(''):'<div class="r">(sem dados)</div>';
+const loc1=c=>{const i=byCode.get(ck(c));return i?rows[i[0]][1]:''};
+function filtrar(){
+  const d=+$('ap').value,r=$('ar').value,lim=d?Date.now()-d*864e5:0;
+  return ped.filter(p=>p.fim>=lim&&(!r||(nk(p.regiao)||'(sem região)')===r));
+}
+function barras(a){
+  const mx=Math.max(1,...a.map(x=>x[1]));
+  return a.length?a.map(([l,v])=>'<div class="bar"><span>'+l+'</span><u><i style="width:'+Math.max(2,Math.round(100*v/mx))+'%"></i></u><b>'+v+'</b></div>').join(''):'<div class="r">(sem dados)</div>';
+}
+function indicacoes(P){
+  if(P.length<MIN_PED)return HH('Indicações do agente')+LL(['Dados insuficientes: '+P.length+' de '+MIN_PED+' pedidos mínimos neste filtro. O agente só opina com amostra mínima.']);
+  const un=new Map(),par=new Map(),gl=new Map(),rg=new Map(),nfc=new Map(),cli=new Map(),inc=(m,k)=>m.set(k,(m.get(k)||0)+1);
+  for(const p of P){
+    const s=[...new Set(p.itens.map(x=>x[0]))].sort();
+    s.forEach(c=>{inc(un,c);inc(gl,c)});
+    if(s.length<=40)for(let i=0;i<s.length;i++)for(let j=i+1;j<s.length;j++)inc(par,s[i]+'\t'+s[j]);
+    const rk=nk(p.regiao)||'(sem região)';let m=rg.get(rk);if(!m){m={n:0,d:p.regiao||rk,c:new Map()};rg.set(rk,m)}
+    m.n++;s.forEach(c=>inc(m.c,c));
+    new Set(p.naoEnc.map(x=>x[0])).forEach(c=>inc(nfc,c));
+    const k=nk(p.cliente);if(k){const c=cli.get(k)||{n:p.cliente,t:[]};c.t.push(p.fim);cli.set(k,c)}
+  }
+  const rs=[];
+  for(const [k,n] of par){if(n<MIN_SUP)continue;const [a,b]=k.split('\t');for(const [x,y] of [[a,b],[b,a]]){const c=n/un.get(x);if(c>=MIN_CONF)rs.push([x,y,n,c])}}
+  rs.sort((a,b)=>b[3]-a[3]||b[2]-a[2]);
+  const rr=[];
+  for(const [,m] of rg){if(m.n<5)continue;let b=null;for(const [c,n] of m.c){if(n<MIN_SUP)continue;const l=(n/m.n)/(gl.get(c)/P.length);if(l>=2&&(!b||l>b[2]))b=[c,n,l]}if(b)rr.push(esc(m.d)+': '+esc(b[0])+' sai '+b[2].toFixed(1)+'× mais que na média ('+b[1]+' de '+m.n+' pedidos)')}
+  const nf=[...nfc].filter(x=>x[1]>=3).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([c,n])=>esc(c)+' não encontrado em '+n+' pedidos: considere cadastrar');
+  const now=Date.now(),cl=[];
+  for(const c of cli.values()){if(c.t.length<3)continue;c.t.sort((a,b)=>a-b);const iv=(c.t[c.t.length-1]-c.t[0])/(c.t.length-1),sem=now-c.t[c.t.length-1];if(iv>=864e5&&sem>2*iv)cl.push([sem/iv,esc(c.n)+' costuma pedir a cada ~'+Math.round(iv/864e5)+' dia(s) e está há '+Math.round(sem/864e5)+' sem pedir'])}
+  cl.sort((a,b)=>b[0]-a[0]);
+  return HH('Indicações do agente ('+P.length+' pedidos)')+
+    HH('Itens que saem juntos')+LL(rs.slice(0,8).map(([x,y,n,c])=>esc(x)+' → '+esc(y)+(loc1(y)?' @ '+esc(loc1(y)):'')+': '+Math.round(c*100)+'% ('+n+' pedidos)'))+
+    HH('Produto forte por região')+LL(rr.slice(0,6))+
+    HH('Possível recompra')+LL(cl.slice(0,5).map(x=>x[1]))+
+    HH('Catálogo')+LL(nf);
+}
+async function alertas(){
+  const e=$('al');
+  try{
+    const r=await fetch('/api/alertas');if(!r.ok)throw 0;
+    const a=await r.json();
+    e.innerHTML=a.length?LL(a.slice(-15).reverse().map(x=>new Date(x.ts).toLocaleString('pt-BR')+' <b>'+esc(x.titulo)+'</b>: '+esc(x.texto))):'<div class="r">Nenhum alerta. Tudo certo.</div>';
+  }catch(_){e.innerHTML='<div class="r m">Servidor desligado: alertas indisponíveis (o supervisor só roda com o servidor ligado).</div>'}
+}
+$('ag').onclick=()=>{
+  const P=filtrar(),pc=new Map(),rc=new Map();
+  for(const p of P){
+    const rk=nk(p.regiao)||'(sem região)',r=rc.get(rk)||[p.regiao||rk,0];r[1]++;rc.set(rk,r);
+    for(const [c,q] of p.itens)pc.set(c,(pc.get(c)||0)+q);
+  }
+  const prod=[...pc].sort((a,b)=>b[1]-a[1]).slice(0,15).map(([c,q])=>[esc(c)+(loc1(c)?' @ '+esc(loc1(c)):''),q]);
+  const reg=[...rc.values()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([d,n])=>[esc(d),n]);
+  $('at').innerHTML=HH('Gerado em '+new Date().toLocaleString('pt-BR')+': '+P.length+' pedido(s)')+
+    HH('Ranking de produtos (unidades pedidas)')+barras(prod)+HH('Pedidos por região')+barras(reg)+
+    indicacoes(P)+HH('Alertas do supervisor')+'<div id="al"></div>';
+  alertas();
+};
+$('ban').onclick=()=>{
+  $('an').hidden=!$('an').hidden;if($('an').hidden)return;
+  const m=new Map();for(const p of ped)m.set(nk(p.regiao)||'(sem região)',p.regiao||'(sem região)');
+  const v=$('ar').value;
+  $('ar').innerHTML='<option value="">Todas as regiões</option>'+[...m].sort((a,b)=>col(a[1],b[1])).map(([k,d])=>'<option value="'+esc(k)+'">'+esc(d)+'</option>').join('');
+  $('ar').value=v;$('ag').onclick();
+};
+
 /* ---- início ---- */
 (async()=>{
   try{const r=await idbGet('cat');if(r&&r.length){rows=r;build()}}catch(e){$('st').textContent='Erro ao abrir o catálogo: '+e}
   if(!rows.length)$('cat').hidden=false;
+  try{ped=(await idbGet('ped'))||[]}catch(_){ped=[]}
+  listas();sync();setInterval(sync,60000);
   run();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(_){}
   if('serviceWorker' in navigator){

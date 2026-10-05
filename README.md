@@ -11,6 +11,7 @@ dentro do Chrome, e é importado pelo próprio app.
 - `servir.py`: servidor local em `localhost:8765` (só biblioteca padrão). O app instalado funciona sem ele.
 - `verificar.py`: confere o ambiente (Python, módulos, arquivos, porta).
 - `converter.py`: converte uma lista em texto (um local por bloco, linhas com códigos) em CSV.
+- `supervisor.py`: vigia os pedidos e avisa por notificação do Termux (só lê e avisa).
 - `checar_repo.py`: confere se nenhum dado do catálogo vai parar no repositório.
 
 ## Uso

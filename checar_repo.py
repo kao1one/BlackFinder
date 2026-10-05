@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 PASTA = Path(__file__).resolve().parent
-EXIGIDOS = ["catalogo*", "*.csv", ".venv/"]          # linhas obrigatórias no .gitignore
-DADOS = ["catalogo*", "*.csv", "*.tsv", "*.xlsx"]    # nomes que são banco de dados
-DIRS_IGNORADOS = {".git", ".venv", "__pycache__"}
+EXIGIDOS = ["catalogo*", "pedidos*", "dados/", "*.csv", ".venv/"]          # linhas obrigatórias no .gitignore
+DADOS = ["catalogo*", "pedidos*", "*.csv", "*.tsv", "*.xlsx", "*.jsonl"]    # nomes que são banco de dados
+DIRS_IGNORADOS = {".git", ".venv", "__pycache__", "dados"}
 COD = re.compile(r"\b[A-Za-z]{2}\s*-?\s*\d{4,6}\b")
 
 problemas = 0
@@ -102,9 +102,9 @@ if git("rev-parse", "--is-inside-work-tree") is None:
     aviso("pasta ainda não é um repositório git (ou git não instalado): checagem de versionamento pulada")
 else:
     rastreados = (git("ls-files") or "").splitlines()
-    ruins = [f for f in rastreados if e_dado(Path(f).name)]
+    ruins = [f for f in rastreados if e_dado(Path(f).name) or f.startswith("dados/")]
     (ruim if ruins else ok)(f"arquivos de dados versionados: {ruins}" if ruins else "nenhum arquivo de dados versionado")
-    hist = {f for f in (git("log", "--all", "--name-only", "--pretty=format:") or "").splitlines() if f and e_dado(Path(f).name)}
+    hist = {f for f in (git("log", "--all", "--name-only", "--pretty=format:") or "").splitlines() if f and (e_dado(Path(f).name) or f.startswith("dados/"))}
     (ruim if hist else ok)(f"HISTÓRICO contém dados: {sorted(hist)} (apagar o arquivo não basta; avise antes de dar push)" if hist else "histórico sem arquivos de dados")
 
 print()

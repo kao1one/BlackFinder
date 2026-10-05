@@ -6,3 +6,6 @@ catalogo*
 __pycache__/
 *.pyc
 *.log
+pedidos*
+dados/
+*.jsonl

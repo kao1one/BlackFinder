@@ -9,3 +9,7 @@ __pycache__/
 pedidos*
 dados/
 *.jsonl
+
+# Dados sensíveis / catálogo oficial (não subir para o GitHub)
+dados/catalogo.csv
+dados/*.csv

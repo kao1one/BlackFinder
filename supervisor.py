@@ -6,6 +6,7 @@ Roda como tarefa em segundo plano dentro do servir.py. Escreve apenas dados/aler
 Teste manual:  python supervisor.py --uma-vez
 """
 import argparse
+import csv
 import hashlib
 import json
 import shutil
@@ -16,12 +17,30 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-MIN_SUP, MIN_CONF = 3, 0.5   # mesmas regras do agente no app
-LONGO_MIN = 45               # pedido acima disso = provável "Finalizar" esquecido
-JANELA = 20                  # últimos pedidos usados nas taxas
-INTERVALO = 60               # segundos entre verificações
-MAX_NOTIF = 3                # notificações por ciclo
+MIN_SUP, MIN_CONF = 3, 0.5
+LONGO_MIN = 45
+JANELA = 20
+INTERVALO = 60
+MAX_NOTIF = 3
 DIA = 86_400_000
+
+
+def ler_catalogo(pasta):
+    """Lê o catálogo oficial e devolve o set de códigos válidos."""
+    arq = Path(pasta) / "catalogo.csv"
+    if not arq.is_file():
+        return None
+    codigos = set()
+    try:
+        with arq.open(encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                cod = (row.get("Código") or row.get("Codigo") or "").strip()
+                if cod:
+                    codigos.add(cod)
+    except Exception:
+        return None
+    return codigos if codigos else None
 
 
 def ler(arq):
@@ -67,13 +86,41 @@ def _cli(p):
     return (p.get("cliente") or "").strip().lower()
 
 
-def analisar(ps, ruins, agora):
+def analisar(ps, ruins, agora, catalogo=None):
     """Função pura: devolve a lista de anomalias {chave, titulo, texto}."""
     A = []
     dia = datetime.fromtimestamp(agora / 1000).strftime("%Y-%m-%d")
 
     def add(chave, titulo, texto):
         A.append({"chave": chave, "titulo": titulo, "texto": texto})
+
+    if catalogo is None:
+        add(f"cat:ausente:{dia}", "Catálogo oficial ausente",
+            "Arquivo dados/catalogo.csv não encontrado ou está vazio. Supervisor sem referência oficial.")
+    else:
+        c_naoenc_validos = Counter()
+        c_itens_invalidos = Counter()
+
+        for p in ps:
+            if agora - p["fim"] < 7 * DIA:
+                for x in p.get("naoEnc", []):
+                    cod = x[0]
+                    if cod in catalogo:
+                        c_naoenc_validos[cod] += 1
+                for x in p.get("itens", []):
+                    cod = x[0]
+                    if cod not in catalogo:
+                        c_itens_invalidos[cod] += 1
+
+        for cod, n in sorted(c_naoenc_validos.items()):
+            if n >= 2:
+                add(f"busca:{cod}:{dia}", "Código existe no catálogo mas foi marcado como não encontrado",
+                    f"{cod} apareceu {n} vezes em naoEnc nos últimos 7 dias, porém existe no catálogo oficial. Possível falha na busca.")
+
+        for cod, n in sorted(c_itens_invalidos.items()):
+            if n >= 2:
+                add(f"invalido:{cod}:{dia}", "Código usado em pedidos não existe no catálogo oficial",
+                    f"{cod} apareceu {n} vezes em pedidos nos últimos 7 dias, mas não está no catálogo oficial.")
 
     if ruins:
         add(f"ruins:{dia}", "Dados corrompidos", f"{ruins} linha(s) inválida(s) em pedidos.jsonl.")
@@ -157,8 +204,9 @@ class Supervisor(threading.Thread):
     def ciclo(self, agora=None):
         agora = agora or int(time.time() * 1000)
         ps, ruins = ler(self.pasta / "pedidos.jsonl")
+        catalogo = ler_catalogo(self.pasta)
         vistos = {a.get("chave") for a in ultimos(self.pasta, 100000)}
-        novos = [a for a in analisar(ps, ruins, agora) if a["chave"] not in vistos]
+        novos = [a for a in analisar(ps, ruins, agora, catalogo) if a["chave"] not in vistos]
         if novos:
             self.pasta.mkdir(exist_ok=True)
             with (self.pasta / "alertas.jsonl").open("a", encoding="utf-8") as f:
@@ -175,7 +223,7 @@ class Supervisor(threading.Thread):
         while True:
             try:
                 self.ciclo()
-            except Exception as e:  # o supervisor nunca derruba o servidor
+            except Exception as e:
                 print(f"[supervisor] erro: {e}")
             if self.parar.wait(INTERVALO):
                 break

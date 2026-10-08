@@ -6,7 +6,7 @@
 body{margin:0;padding:8px;padding-top:max(8px,env(safe-area-inset-top));padding-bottom:max(8px,env(safe-area-inset-bottom));font:16px/1.35 system-ui,sans-serif;background:#000;color:#eee}
 button,select,input,textarea{font:inherit;color:#eee;background:#1c1c1c;border:1px solid #444;border-radius:6px;padding:10px;box-sizing:border-box}
 textarea,input[type=search],select{width:100%;margin:4px 0}
-#bar,#bar2{display:flex;gap:6px;margin-top:6px}#bar button,#bar2 button{flex:1}#pc,#pr{flex:1;min-width:0}.bar{display:flex;align-items:center;gap:6px;padding:2px 6px}.bar span{flex:0 0 42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.bar u{flex:1;display:block;text-decoration:none}.bar i{display:block;height:14px;background:#46c;border-radius:3px}
+#bar,#bar2{display:flex;gap:6px;margin-top:6px}#bar button,#bar2 button{flex:1}#pc,#pr{flex:1;min-width:0}.bar{display:flex;align-items:center;gap:6px;padding:2px 6px}.bar span{flex:0 0 42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.bar u{flex:1;display:block;text-decoration:none}.c{color:#fc6}#cd,#cp{flex:1;min-width:0}.bar i{display:block;height:14px;background:#46c;border-radius:3px}
 h3{margin:12px 0 2px;padding:2px 6px;background:#223;font-size:16px}
 .r{padding:4px 6px;border-bottom:1px solid #222}.m{color:#f66}#st{color:#9c9;margin:4px 0}
 #dout .r{cursor:pointer}#ed input{width:100%;margin:4px 0}[hidden]{display:none!important}
@@ -16,11 +16,13 @@ h3{margin:12px 0 2px;padding:2px 6px;background:#223;font-size:16px}
 <textarea id="in" rows="4" placeholder="Cole os códigos do pedido" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
 <div style="display:flex;gap:6px"><input id="pc" list="lc" placeholder="Cliente" autocomplete="off"><input id="pr" list="lr" placeholder="Região" autocomplete="off"></div><datalist id="lc"></datalist><datalist id="lr"></datalist><div id="pm" style="color:#9c9"></div>
 <input id="ds" type="search" placeholder="Buscar por descrição ou código parcial" autocomplete="off">
-<div id="dout"></div><div id="st"></div><div id="out"></div><div id="ver" style="color:#777;font-size:12px;margin-top:10px">BlackFinder v8</div>
+<div id="dout"></div><div id="st"></div><div id="out"></div><div id="ver" style="color:#777;font-size:12px;margin-top:10px">BlackFinder v13</div>
 <div id="an" hidden>
 <h3>Análise</h3>
 <div style="display:flex;gap:6px"><select id="ap"><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="0">Tudo</option></select><select id="ar"></select></div>
 <button id="ag" style="width:100%;margin:6px 0">Gerar relatório</button>
+<div style="display:flex;gap:6px"><input id="cd" placeholder="Cor errada (ex.: azull)" autocomplete="off"><input id="cp" placeholder="Cor certa (ex.: azul)" autocomplete="off"></div>
+<button id="cx" style="width:100%;margin:6px 0">Corrigir cor em todos os pedidos</button><div id="cm" class="r"></div>
 <div id="at"></div></div>
 <div id="rp" hidden>
 <h3>Relatório</h3>
@@ -52,13 +54,14 @@ const norm=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const ck=s=>s.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
 const zs=s=>s.replace(/^0+(?=.)/,'');
 const col=new Intl.Collator('pt',{numeric:true}).compare;
-let rows=[],byCode=new Map(),byZ=new Map(),byNum=new Map(),inv=new Map(),tk=[],pend=null,lastText='';
+let rows=[],byCode=new Map(),byZ=new Map(),byNum=new Map(),prefs=new Set(),inv=new Map(),tk=[],pend=null,lastText='';
 
 function build(){
-  byCode=new Map();byZ=new Map();byNum=new Map();inv=new Map();
+  byCode=new Map();byZ=new Map();byNum=new Map();prefs=new Set();inv=new Map();
   for(let i=0;i<rows.length;i++){
     const r=rows[i],k=ck(r[0]);if(!k)continue;
     let a=byCode.get(k);if(a)a.push(i);else byCode.set(k,[i]);
+    const mp=k.match(/^[A-Z]+/);if(mp)prefs.add(mp[0]);
     const z=zs(k);a=byZ.get(z);if(a)a.push(i);else byZ.set(z,[i]);
     const mn=k.match(/^[A-Z]*(\d+)$/);if(mn){const n=zs(mn[1]);a=byNum.get(n);if(a)a.push(i);else byNum.set(n,[i])}
     for(const t of norm(r[2]+' '+r[0]).split(/[^a-z0-9]+/)){
@@ -70,25 +73,48 @@ function build(){
 }
 function lb(t){let a=0,b=tk.length;while(a<b){const m=(a+b)>>1;if(tk[m]<t)a=m+1;else b=m}return a}
 
+function parseTexto(txt){
+  const ent=new Map(),zf=s=>s.replace(/\b([A-Za-z]{1,3})0(?=[\s\-_.]*\d{4,6}\b)/g,(m,a)=>prefs.has((a+'O').toUpperCase())?a+'O':m),
+    ps=s=>zf(s).replace(/\b([A-Za-z]{1,4})[\s\-_.]+(?=\d)/g,(m,a)=>prefs.has(a.toUpperCase())||a.length===2?a:m);
+  const cd=t=>{const k=ck(t);return !!(byCode.get(k)||byZ.get(zs(k))||byNum.get(zs(k)))||/^[A-Z]{1,4}\d{3,}$/.test(k)||/^\d{3,}$/.test(k)};
+  for(const seg of txt.replace(/\bc[oó]digos?\b\.?/gi,' ').split(/[\n,;|]+/)){
+    let cur=null;
+    const fl=()=>{
+      if(!cur)return;
+      let c=cur.w.join(' ').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
+      if(c.split(' ').length>3)c='';
+      c=alias[nk(c)]||c;
+      const key=cur.k+'\t'+c,e=ent.get(key);if(e)e.n+=cur.q;else ent.set(key,{n:cur.q});
+    };
+    for(const t of ps(seg).split(/\s+/).filter(Boolean)){
+      const q=t.match(/^x?(\d{1,4})x?$/i),n4=/^\d{4}$/.test(t)&&byNum.has(zs(t));
+      if(q&&!n4&&(cur||q[1].length<3)){if(cur)cur.q=+q[1]||1}
+      else if(cd(t)){fl();cur={k:ck(t),q:1,w:[]}}
+      else if(cur)cur.w.push(t);
+    }
+    fl();
+  }
+  return ent;
+}
 function run(){
   if($('in').value.trim()){if(!t0)t0=Date.now()}else t0=0;
-  const toks=$('in').value.replace(/\bc[oó]digos?\b\.?/gi,' ').replace(/\b([A-Za-z]{1,4})[\s\-_.]+(?=\d)/g,'$1').split(/[\s,;|]+/).filter(Boolean);
-  const cnt=new Map();
-  for(const x of toks){const k=ck(x);cnt.set(k,(cnt.get(k)||0)+1)}
-  const found=[],miss=[];
-  for(const [k,n] of cnt){
+  const cnt=parseTexto($('in').value);
+  const found=[],miss=[],mm=new Map();
+  for(const [kc,e] of cnt){
+    const [k,cor]=kc.split('\t'),n=e.n;
     let ids=byCode.get(k)||byZ.get(zs(k)),amb=false;
     if(!ids&&/^\d+$/.test(k)){ids=byNum.get(zs(k));amb=!!ids&&new Set(ids.map(i=>ck(rows[i][0]))).size>1}
-    if(!ids)miss.push([k,n]);
-    else for(const i of ids)found.push([rows[i][1],rows[i][0],rows[i][2],n,amb]);
+    if(!ids)mm.set(k,(mm.get(k)||0)+n);
+    else for(const i of ids)found.push([rows[i][1],rows[i][0],rows[i][2],n,amb,cor]);
   }
+  for(const e of mm)miss.push(e);
   found.sort((a,b)=>col(a[0],b[0])||col(a[1],b[1]));
   lastF=found;lastM=miss;
   let h='',t='',last=null;
   for(const f of found){
     if(f[0]!==last){last=f[0];h+='<h3>'+esc(f[0]||'(sem local)')+'</h3>'}
-    h+='<div class="r">'+esc(f[1])+' '+esc(f[2])+(f[3]>1?' <b>×'+f[3]+'</b>':'')+(f[4]?' <b class="m">⚠ mesmo nº, outro prefixo</b>':'')+'</div>';
-    t+=(f[0]||'(sem local)')+' | '+f[1]+' | '+f[2]+(f[3]>1?' | x'+f[3]:'')+(f[4]?' | ⚠ mesmo nº, outro prefixo':'')+'\n';
+    h+='<div class="r">'+esc(f[1])+' '+esc(f[2])+(f[5]?' <b class="c">'+esc(f[5])+'</b>':'')+(f[3]>1?' <b>×'+f[3]+'</b>':'')+(f[4]?' <b class="m">⚠ mesmo nº, outro prefixo</b>':'')+'</div>';
+    t+=(f[0]||'(sem local)')+' | '+f[1]+' | '+f[2]+(f[5]?' | cor '+f[5]:'')+(f[3]>1?' | x'+f[3]:'')+(f[4]?' | ⚠ mesmo nº, outro prefixo':'')+'\n';
   }
   if(miss.length){
     h='<h3 class="m">NÃO ENCONTRADOS ('+miss.length+')</h3>'+miss.map(m=>'<div class="r m">'+esc(m[0])+(m[1]>1?' ×'+m[1]:'')+'</div>').join('')+h;
@@ -242,7 +268,7 @@ $('ex').onclick=()=>{
 };
 
 /* ---- pedidos e relatório ---- */
-let ped=[],lastF=[],lastM=[],t0=0,syncing=false;
+let ped=[],lastF=[],lastM=[],t0=0,syncing=false,alias={};
 const pm=t=>{$('pm').textContent=t};
 const nk=s=>norm(s).replace(/\s+/g,' ').trim();
 function listas(){
@@ -260,10 +286,10 @@ async function sync(){
   syncing=false;
 }
 $('bf').onclick=async()=>{
-  const u=new Map();for(const f of lastF)u.set(f[1],f[3]);
+  const u=new Map();for(const f of lastF)u.set(f[1]+'\t'+(f[5]||''),[f[1],f[3],f[5]||'']);
   if(!u.size&&!lastM.length)return pm('Nada para finalizar: cole os códigos do pedido.');
   const now=Date.now(),p={id:now.toString(36)+Math.random().toString(36).slice(2,6),ini:t0||now,fim:now,
-    cliente:$('pc').value.trim(),regiao:$('pr').value.trim(),itens:[...u],naoEnc:lastM.slice(),enviado:false};
+    cliente:$('pc').value.trim(),regiao:$('pr').value.trim(),itens:[...u.values()],naoEnc:lastM.slice(),enviado:false};
   const nr=ped.concat([p]);
   try{await idbSet('ped',nr)}catch(e){return pm('Erro ao gravar o pedido: '+e)}
   ped=nr;listas();
@@ -303,13 +329,13 @@ function rel(){
 }
 $('bxp').onclick=()=>{
   const q=v=>{v=String(v);if(/^[=+\-@]/.test(v))v="'"+v;return /[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-  const t='id;inicio;fim;minutos;cliente;regiao;itens;unidades;nao_encontrados;codigos\r\n'+ped.map(p=>[p.id,new Date(p.ini).toISOString(),new Date(p.fim).toISOString(),Math.round((p.fim-p.ini)/6000)/10,p.cliente,p.regiao,p.itens.length,p.itens.reduce((s,x)=>s+x[1],0),p.naoEnc.length,p.itens.map(x=>x[0]+(x[1]>1?'x'+x[1]:'')).join(' ')].map(q).join(';')).join('\r\n')+'\r\n';
+  const t='id;inicio;fim;minutos;cliente;regiao;itens;unidades;nao_encontrados;codigos\r\n'+ped.map(p=>[p.id,new Date(p.ini).toISOString(),new Date(p.fim).toISOString(),Math.round((p.fim-p.ini)/6000)/10,p.cliente,p.regiao,p.itens.length,p.itens.reduce((s,x)=>s+x[1],0),p.naoEnc.length,p.itens.map(x=>x[0]+(x[2]?'('+x[2]+')':'')+(x[1]>1?'x'+x[1]:'')).join(' ')].map(q).join(';')).join('\r\n')+'\r\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv;charset=utf-8'}));a.download='pedidos.csv';
   document.body.appendChild(a);a.click();a.remove();pm('pedidos.csv exportado ('+ped.length+' pedidos) em Downloads.');
 };
 
 /* ---- análise gráfica e indicações ---- */
-const MIN_PED=10,MIN_SUP=3,MIN_CONF=.5;
+const MIN_PED=10,MIN_SUP=3,MIN_CONF=.5,MAX_CORES=12;
 const HH=t=>'<h3>'+t+'</h3>',LL=a=>a.length?a.map(x=>'<div class="r">'+x+'</div>').join(''):'<div class="r">(sem dados)</div>';
 const loc1=c=>{const i=byCode.get(ck(c));return i?rows[i[0]][1]:''};
 function filtrar(){
@@ -356,15 +382,17 @@ async function alertas(){
   }catch(_){e.innerHTML='<div class="r m">Servidor desligado: alertas indisponíveis (o supervisor só roda com o servidor ligado).</div>'}
 }
 $('ag').onclick=()=>{
-  const P=filtrar(),pc=new Map(),rc=new Map();
+  const P=filtrar(),pc=new Map(),rc=new Map(),cc=new Map(),tot=new Set();
+  for(const p of ped)for(const x of p.itens)if(x[2])tot.add(nk(x[2]));
   for(const p of P){
     const rk=nk(p.regiao)||'(sem região)',r=rc.get(rk)||[p.regiao||rk,0];r[1]++;rc.set(rk,r);
-    for(const [c,q] of p.itens)pc.set(c,(pc.get(c)||0)+q);
+    for(const [c,q,cr] of p.itens){pc.set(c,(pc.get(c)||0)+q);if(cr){const kk=nk(cr),o=cc.get(kk)||[cr,0];o[1]+=q;cc.set(kk,o)}}
   }
   const prod=[...pc].sort((a,b)=>b[1]-a[1]).slice(0,15).map(([c,q])=>[esc(c)+(loc1(c)?' @ '+esc(loc1(c)):''),q]);
   const reg=[...rc.values()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([d,n])=>[esc(d),n]);
   $('at').innerHTML=HH('Gerado em '+new Date().toLocaleString('pt-BR')+': '+P.length+' pedido(s)')+
     HH('Ranking de produtos (unidades pedidas)')+barras(prod)+HH('Pedidos por região')+barras(reg)+
+    HH('Cores: '+(tot.size>MAX_CORES?'<span class="m">'+tot.size+' distintas no banco, acima de '+MAX_CORES+'</span>':tot.size+' distintas no banco (esperado até '+MAX_CORES+')'))+barras([...cc.values()].sort((a,b)=>b[1]-a[1]).slice(0,12).map(([c,q])=>[esc(c),q]))+
     indicacoes(P)+HH('Alertas do supervisor')+'<div id="al"></div>';
   alertas();
 };
@@ -373,7 +401,32 @@ $('ban').onclick=()=>{
   const m=new Map();for(const p of ped)m.set(nk(p.regiao)||'(sem região)',p.regiao||'(sem região)');
   const v=$('ar').value;
   $('ar').innerHTML='<option value="">Todas as regiões</option>'+[...m].sort((a,b)=>col(a[1],b[1])).map(([k,d])=>'<option value="'+esc(k)+'">'+esc(d)+'</option>').join('');
-  $('ar').value=v;$('ag').onclick();
+  $('ar').value=v;$('cm').textContent=rg();$('ag').onclick();
+};
+
+/* ---- correção de cores ---- */
+const rg=()=>{const e=Object.entries(alias);return e.length?'Trocas automáticas ativas: '+e.map(([k,v])=>k+' → '+v).join('; '):'Nenhuma troca automática de cor ativa.'};
+$('cx').onclick=async()=>{
+  const m=t=>{$('cm').textContent=t},orig=$('cd').value.trim(),de=nk(orig),para=$('cp').value.trim().toLowerCase().replace(/\s+/g,' ');
+  if(!de)return m('Preencha a cor errada.');
+  if(!para){
+    if(!alias[de])return m('Preencha a cor certa (ou, para remover uma troca automática, digite só a cor errada dela).');
+    if(!confirm('Remover a troca automática "'+de+' → '+alias[de]+'"?'))return;
+    const al={...alias};delete al[de];
+    try{await idbSet('alias',al)}catch(e){return m('Erro ao gravar: '+e)}
+    alias=al;return m('Troca removida. '+rg());
+  }
+  if(!/^[\p{L}]+( [\p{L}]+){0,2}$/u.test(para))return m('A cor certa deve ter só letras, até 3 palavras.');
+  if(nk(para)===de)return m('As duas cores são iguais.');
+  let ni=0,np=0;
+  const nova=ped.map(p=>{let ch=false;const it=p.itens.map(x=>{if(x[2]&&nk(x[2])===de){ch=true;ni++;return[x[0],x[1],para]}return x});if(ch)np++;return ch?{...p,itens:it,enviado:false}:p});
+  const ok=ni?confirm('Trocar "'+orig+'" por "'+para+'" em '+ni+' item(ns) de '+np+' pedido(s) e nas próximas digitações?'):confirm('Nenhum pedido salvo tem a cor "'+orig+'". Criar só a troca automática "'+de+' → '+para+'" para as próximas digitações?');
+  if(!ok)return;
+  const al={...alias};for(const k in al)if(nk(al[k])===de)al[k]=para;al[de]=para;
+  try{if(ni)await idbSet('ped',nova);await idbSet('alias',al)}catch(e){return m('Erro ao gravar: '+e)}
+  if(ni)ped=nova;alias=al;
+  m((ni?'Corrigido: '+ni+' item(ns) em '+np+' pedido(s). ':'Troca criada. ')+rg());
+  $('ag').onclick();sync();
 };
 
 /* ---- início ---- */
@@ -381,6 +434,7 @@ $('ban').onclick=()=>{
   try{const r=await idbGet('cat');if(r&&r.length){rows=r;build()}}catch(e){$('st').textContent='Erro ao abrir o catálogo: '+e}
   if(!rows.length)$('cat').hidden=false;
   try{ped=(await idbGet('ped'))||[]}catch(_){ped=[]}
+  try{alias=(await idbGet('alias'))||{}}catch(_){alias={}}
   listas();sync();setInterval(sync,60000);
   run();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(_){}

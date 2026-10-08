@@ -87,18 +87,23 @@ class Handler(BaseHTTPRequestHandler):
             with TRAVA:
                 DADOS.mkdir(exist_ok=True)
                 arq = DADOS / "pedidos.jsonl"
-                ja = set()
+                linhas = {}
                 if arq.is_file():
                     for linha in arq.read_text(encoding="utf-8").splitlines():
                         try:
-                            ja.add(json.loads(linha)["id"])
+                            linhas[json.loads(linha)["id"]] = linha
                         except (ValueError, KeyError, TypeError):
-                            pass
-                with arq.open("a", encoding="utf-8") as f:
-                    for x in lote:
-                        if x["id"] not in ja:
-                            f.write(json.dumps(x, ensure_ascii=False) + "\n")
-                            ja.add(x["id"])
+                            linhas[f"_ruim{len(linhas)}"] = linha  # linha corrompida: preservada intacta
+                mudou = False
+                for x in lote:
+                    nova = json.dumps(x, ensure_ascii=False)
+                    if linhas.get(x["id"]) != nova:  # pedido novo ou corrigido no app
+                        linhas[x["id"]] = nova
+                        mudou = True
+                if mudou:
+                    tmp = arq.with_suffix(".tmp")
+                    tmp.write_text("\n".join(linhas.values()) + "\n", encoding="utf-8")
+                    tmp.replace(arq)
         except OSError as e:
             return self._enviar(f"erro ao gravar: {e}".encode(), "text/plain; charset=utf-8", 500)
         self._enviar(json.dumps({"salvos": [x["id"] for x in lote]}).encode(), "application/json")

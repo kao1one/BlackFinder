@@ -69,7 +69,10 @@ class Handler(BaseHTTPRequestHandler):
             self._enviar(f"erro ao ler arquivo: {e}".encode(), "text/plain; charset=utf-8", 500)
 
     def do_POST(self):
-        if self.path.split("?")[0] != "/api/pedidos":
+        rota = self.path.split("?")[0]
+        if rota == "/api/backup/catalogo":
+            return self._backup_catalogo()
+        if rota != "/api/pedidos":
             return self._enviar(b"nao encontrado", "text/plain; charset=utf-8", 404)
         porta = self.server.server_address[1]
         if self.headers.get("Origin", "") not in (f"http://localhost:{porta}", f"http://127.0.0.1:{porta}"):
@@ -108,8 +111,55 @@ class Handler(BaseHTTPRequestHandler):
             return self._enviar(f"erro ao gravar: {e}".encode(), "text/plain; charset=utf-8", 500)
         self._enviar(json.dumps({"salvos": [x["id"] for x in lote]}).encode(), "application/json")
 
+    def _backup_catalogo(self):
+        """Guarda uma versão datada do catálogo, só se diferir da ÚLTIMA versão (backup v2)."""
+        porta = self.server.server_address[1]
+        if self.headers.get("Origin", "") not in (f"http://localhost:{porta}", f"http://127.0.0.1:{porta}"):
+            return self._enviar(b"origem negada", "text/plain; charset=utf-8", 403)
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            if not 0 < n <= 5_000_000:
+                raise ValueError("tamanho")
+            dados = json.loads(self.rfile.read(n))
+            if not isinstance(dados, dict):
+                raise ValueError("formato")
+            conteudo, assinatura = dados.get("conteudo"), dados.get("assinatura")
+            if not isinstance(conteudo, str) or not conteudo:
+                raise ValueError("conteudo")
+            if not isinstance(assinatura, str) or len(assinatura) != 64 or any(c not in "0123456789abcdef" for c in assinatura):
+                raise ValueError("assinatura")
+            bruto = conteudo.encode("utf-8")
+        except ValueError:
+            return self._enviar(b"requisicao invalida", "text/plain; charset=utf-8", 400)
+        if hashlib.sha256(bruto).hexdigest() != assinatura:
+            return self._enviar(b"assinatura invalida", "text/plain; charset=utf-8", 400)
+        try:
+            with TRAVA:
+                from datetime import datetime
+                pasta = DADOS / "backups"
+                pasta.mkdir(parents=True, exist_ok=True)
+                for sobra in pasta.glob("*.tmp"):
+                    sobra.unlink(missing_ok=True)
+                versoes = sorted(pasta.glob("catalogo_*.csv"))
+                if versoes and versoes[-1].stem.endswith(assinatura[:12]):
+                    return self._enviar(json.dumps({"status": "ja_existe", "arquivo": versoes[-1].name}).encode(), "application/json")
+                nome = f"catalogo_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{assinatura[:12]}.csv"
+                destino = pasta / nome
+                tmp = destino.with_suffix(".tmp")
+                tmp.write_bytes(bruto)
+                if hashlib.sha256(tmp.read_bytes()).hexdigest() != assinatura:
+                    tmp.unlink(missing_ok=True)
+                    return self._enviar(b"falha na verificacao", "text/plain; charset=utf-8", 500)
+                tmp.replace(destino)
+                for antigo in sorted(pasta.glob("catalogo_*.csv"))[:-60]:
+                    antigo.unlink(missing_ok=True)
+            return self._enviar(json.dumps({"status": "ok", "arquivo": nome}).encode(), "application/json")
+        except OSError as e:
+            return self._enviar(f"erro ao gravar: {e}".encode(), "text/plain; charset=utf-8", 500)
+
     def log_message(self, *args):
         pass
+
 
 
 def main():

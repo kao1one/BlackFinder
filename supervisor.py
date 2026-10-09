@@ -16,14 +16,24 @@ import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+import json
+from eventos import registrar
 
-MIN_SUP, MIN_CONF = 3, 0.5
-LONGO_MIN = 45
-JANELA = 20
-INTERVALO = 60
-MAX_NOTIF = 3
+# Carrega configuração externa (Fase 1)
+try:
+    with open(Path(__file__).resolve().parent / "config.json", encoding="utf-8") as f:
+        _cfg = json.load(f)
+    _lim = _cfg.get("limites", {})
+except Exception:
+    _lim = {}
+
+MIN_SUP = _lim.get("min_suporte_regra", 3)
+MIN_CONF = _lim.get("min_confianca_regra", 0.5)
+LONGO_MIN = _lim.get("pedido_longo_minutos", 45)
+JANELA = _lim.get("janela_pedidos", 20)
+INTERVALO = _lim.get("intervalo_supervisor_segundos", 60)
+MAX_NOTIF = _lim.get("max_notificacoes_ciclo", 3)
 DIA = 86_400_000
-
 
 def ler_catalogo(pasta):
     """Lê o catálogo oficial e devolve o set de códigos válidos."""
@@ -217,6 +227,7 @@ class Supervisor(threading.Thread):
                 self.notificar(a["titulo"], a["texto"])
             if len(novos) > MAX_NOTIF:
                 self.notificar("Mais alertas", f"+{len(novos) - MAX_NOTIF} alerta(s): abra a aba Análise no app.")
+                registrar("supervisor_ciclo", f"novos_alertas={len(novos)}")
         return novos
 
     def run(self):

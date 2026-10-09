@@ -1,0 +1,19 @@
+{
+  "versao_formato": 1,
+  "horario": {
+    "abertura_semana": "07:00",
+    "abertura_sabado": "09:00",
+    "resumo_semana": "16:15",
+    "resumo_sabado": "13:15",
+    "fuso": "America/Sao_Paulo"
+  },
+  "limites": {
+    "pedido_longo_minutos": 45,
+    "janela_pedidos": 20,
+    "min_suporte_regra": 3,
+    "min_confianca_regra": 0.5,
+    "max_notificacoes_ciclo": 3,
+    "intervalo_supervisor_segundos": 60,
+    "carencia_alerta_minutos": 30
+  }
+}
